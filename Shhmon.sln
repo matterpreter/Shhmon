@@ -1,6 +1,7 @@
-
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29215.179
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shhmon", "Shhmon\Shhmon.csproj", "{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}"
 EndProject
 Global
@@ -9,9 +10,15 @@ Global
 		Release|anycpu = Release|anycpu
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Debug|anycpu.ActiveCfg = Debug|anycpu
-		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Debug|anycpu.Build.0 = Debug|anycpu
-		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Release|anycpu.ActiveCfg = Release|anycpu
-		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Release|anycpu.Build.0 = Release|anycpu
+		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Debug|anycpu.ActiveCfg = Debug|Any CPU
+		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Debug|anycpu.Build.0 = Debug|Any CPU
+		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Release|anycpu.ActiveCfg = Release|Any CPU
+		{572BB6CC-C814-4ADE-98FB-BF2C4D246BB2}.Release|anycpu.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C4AA96C4-496C-45AC-AD7E-8AA8549AE29C}
 	EndGlobalSection
 EndGlobal

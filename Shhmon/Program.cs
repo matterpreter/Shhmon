@@ -36,16 +36,19 @@ namespace Shhmon
             //FltUserStructures._FILTER_INFORMATION_CLASS finfo = new FltUserStructures._FILTER_INFORMATION_CLASS();
             uint bytesReturned = 0;
             IntPtr hDevice = IntPtr.Zero;
-            IntPtr buffer = Marshal.AllocHGlobal(42);
+            //IntPtr buffer = Marshal.AllocHGlobal(42);
+            byte[] buffer = new byte[42];
             uint hr;
 
-            hr = FilterFindFirst(FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, IntPtr.Zero, 0, ref bytesReturned, ref hDevice);
+            hr = FilterFindFirst(FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, 0, ref bytesReturned, ref hDevice);
 
             if (hr.Equals(ERROR_INSUFFICIENT_BUFFER))
             {
-                
-                Marshal.ReAllocHGlobal(buffer, new IntPtr(bytesReturned));
-                RtlZeroMemory(buffer, (int)bytesReturned);
+
+                //Marshal.ReAllocHGlobal(buffer, new IntPtr(bytesReturned));
+                Array.Resize(ref buffer, (int)bytesReturned);
+                //RtlZeroMemory(buffer, (int)bytesReturned);
+                Array.Clear(buffer, 0, buffer.Length);
                 Console.WriteLine("Resized buffer to " + bytesReturned + " bytes");
                 hr = FilterFindFirst(FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, bytesReturned, ref bytesReturned, ref hDevice);
             }
@@ -69,12 +72,13 @@ namespace Shhmon
                 hr = FilterFindNext(hDevice, FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, bytesReturned, out bytesReturned);
                 if (hr == ERROR_INSUFFICIENT_BUFFER)
                 {
-                    Console.WriteLine("Found another driver. Need buffer of length " + bytesReturned );
-                    IntPtr buf2 = Marshal.AllocHGlobal((int)bytesReturned);
+                    Console.WriteLine("Found another driver. Need buffer of length " + bytesReturned);
+                    //IntPtr buf2 = Marshal.AllocHGlobal((int)bytesReturned); //ISSUE: Need to extend buffer, not continuously resize it
+                    Array.Resize(ref buffer, buffer.Length + (int)bytesReturned);
                     //Marshal.ReAllocHGlobal(buffer, new IntPtr(bytesReturned));
-                    RtlZeroMemory(buf2, (int)bytesReturned);
-                    Console.WriteLine("Resized buffer to " + bytesReturned + " bytes");
-                    hr = FilterFindNext(hDevice, FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buf2, bytesReturned, out bytesReturned);
+                    //RtlZeroMemory(buf2, (int)bytesReturned);
+                    Console.WriteLine("Resized buffer to " + buffer.Length + " bytes");
+                    hr = FilterFindNext(hDevice, FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, bytesReturned, out bytesReturned);
                 }
 
                 if (hr != ERROR_SUCCESS)
@@ -96,7 +100,10 @@ namespace Shhmon
                 FilterFindClose(hDevice);
             }
             Console.WriteLine("Freeing memory...");
-            Marshal.FreeHGlobal(buffer);
+            string StringByte = BitConverter.ToString(buffer);
+            Console.WriteLine(StringByte);
+
+            //FreeHGlobal(buffer);
             //return result;
         }
 
@@ -242,12 +249,12 @@ namespace Shhmon
         );
 
         [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern UInt32 FilterFindClose(IntPtr hFilterFind);
+        public static extern UInt32 Close(IntPtr hFilterFind);
 
         [DllImport("FltLib.dll", SetLastError = true)]
         public static extern UInt32 FilterFindFirst(
             FltUserStructures._FILTER_INFORMATION_CLASS dwInformationClass,
-            IntPtr lpBuffer,
+            byte[] lpBuffer,
             UInt32 dwBufferSize,
             ref UInt32 lpBytesReturned,
             ref IntPtr lpFilterFind
@@ -257,10 +264,13 @@ namespace Shhmon
         public static extern UInt32 FilterFindNext(
             IntPtr hFilterFind,
             FltUserStructures._FILTER_INFORMATION_CLASS dwInformationClass,
-            IntPtr lpBuffer,
+            byte[] lpBuffer,
             UInt32 dwBufferSize,
             out UInt32 lpBytesReturned
         );
+
+        [DllImport("FltLib.dll", SetLastError = true)]
+        public static extern uint FilterFindClose(IntPtr hFilterFind);
 
         [DllImport("FltLib.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern UInt32 FilterUnload(String lpFilterName);
