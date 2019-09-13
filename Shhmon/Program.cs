@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace NewShhmon
+namespace Shhmon
 {
     class Program
     {
