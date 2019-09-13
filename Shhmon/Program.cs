@@ -1,112 +1,116 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 using System.Text;
 
 namespace Shhmon
 {
-    class MainClass
+    class Program
     {
-        public static void Main(string[] args)
+        static void Main(string[] args)
         {
-            using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) // We need SeDebugPrivilege for this to work (I think, need to verify)
+            Console.WriteLine("yeet");
+            List<FilterInfo> filterInfo = GetFiltersInformation();
+            foreach (var filter in filterInfo)
             {
-                WindowsPrincipal principal = new WindowsPrincipal(identity);
-                if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
-                {
-                    Console.WriteLine("[-] You need administrator rights to interact for this to work.");
-                }
+                Console.WriteLine("{0} is running at altitude {1}", filter.Name, filter.Altitude);
             }
 
-            CollectFilterDetails();
         }
 
-        public static void CollectFilterDetails()
+        public struct FilterInfo
+        {
+            public string Name { get; internal set; }
+            public int Altitude { get; internal set; }
+            public int? Instances { get; internal set; }
+            public int? FrameId { get; internal set; }
+        }
+
+        public static List<FilterInfo> GetFiltersInformation()
         {
             List<FilterInfo> result = new List<FilterInfo>();
-            //Hunting for driver at altitude 385201
-
-            uint ERROR_INSUFFICIENT_BUFFER = 2147942522;
-            uint ERROR_NO_MORE_ITEMS = 2147942659;
-            uint ERROR_SUCCESS = 0;
-
-            //FltUserStructures._FILTER_INFORMATION_CLASS finfo = new FltUserStructures._FILTER_INFORMATION_CLASS();
-            uint bytesReturned = 0;
-            IntPtr hDevice = IntPtr.Zero;
-            //IntPtr buffer = Marshal.AllocHGlobal(42);
-            byte[] buffer = new byte[42];
-            uint hr;
-
-            hr = FilterFindFirst(FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, 0, ref bytesReturned, ref hDevice);
-
-            if (hr.Equals(ERROR_INSUFFICIENT_BUFFER))
             {
-
-                //Marshal.ReAllocHGlobal(buffer, new IntPtr(bytesReturned));
-                Array.Resize(ref buffer, (int)bytesReturned);
-                //RtlZeroMemory(buffer, (int)bytesReturned);
-                Array.Clear(buffer, 0, buffer.Length);
-                Console.WriteLine("Resized buffer to " + bytesReturned + " bytes");
-                hr = FilterFindFirst(FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, bytesReturned, ref bytesReturned, ref hDevice);
-            }
-
-            if (hr != ERROR_SUCCESS) //Catch generic failure
-            {
-                Console.WriteLine("HRESULT: " + hr);
-                string errorMessage = new Win32Exception(Marshal.GetLastWin32Error()).Message;
-                Console.WriteLine("Last Win32 Error: " + errorMessage);
-                if (hr.Equals(ERROR_NO_MORE_ITEMS))
+                using (ResizableBuffer buffer = new ResizableBuffer(1024))
                 {
-                    Console.WriteLine("[-] No drivers found"); 
-                    throw Marshal.GetExceptionForHR(unchecked((int)hr));
-                }
-            }
+                    IntPtr filterFindHandle = IntPtr.Zero;
+                    uint hr = 0;
 
-            //result.AddRange(MarshalFilterInfo(buffer));
-
-            while (true)
-            {
-                hr = FilterFindNext(hDevice, FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, bytesReturned, out bytesReturned);
-                if (hr == ERROR_INSUFFICIENT_BUFFER)
-                {
-                    Console.WriteLine("Found another driver. Need buffer of length " + bytesReturned);
-                    //IntPtr buf2 = Marshal.AllocHGlobal((int)bytesReturned); //ISSUE: Need to extend buffer, not continuously resize it
-                    Array.Resize(ref buffer, buffer.Length + (int)bytesReturned);
-                    //Marshal.ReAllocHGlobal(buffer, new IntPtr(bytesReturned));
-                    //RtlZeroMemory(buf2, (int)bytesReturned);
-                    Console.WriteLine("Resized buffer to " + buffer.Length + " bytes");
-                    hr = FilterFindNext(hDevice, FltUserStructures._FILTER_INFORMATION_CLASS.FilterAggregateBasicInformation, buffer, bytesReturned, out bytesReturned);
-                }
-
-                if (hr != ERROR_SUCCESS)
-                {
-                    if (hr == ERROR_NO_MORE_ITEMS)
+                    try
                     {
-                        Console.WriteLine("Enumerated all drivers. Breaking loop.");
-                        break;
+                        uint bytesReturned;
+
+                        hr = NativeMethods.FilterFindFirst(NativeMethods.FilterInformationClass.FilterAggregateStandardInformation, buffer.DangerousGetPointer(), (uint)buffer.ByteLength, out bytesReturned, out filterFindHandle);
+
+                        // If the buffer allocated is not large enough to hold all data returned, resize it and try again.
+                        if (hr == NativeMethods.ErrorInsufficientBuffer)
+                        {
+                            buffer.Resize(unchecked((int)bytesReturned));
+                            hr = NativeMethods.FilterFindFirst(NativeMethods.FilterInformationClass.FilterAggregateStandardInformation, buffer.DangerousGetPointer(), (uint)buffer.ByteLength, out bytesReturned, out filterFindHandle);
+                        }
+
+                        if (hr != NativeMethods.Ok)
+                        {
+                            // There are no filters available.
+                            if (hr == NativeMethods.ErrorNoMoreItems)
+                            {
+                                return result;
+                            }
+
+                            throw Marshal.GetExceptionForHR(unchecked((int)hr));
+                        }
+
+                        result.AddRange(MarshalFilterInfo(buffer.DangerousGetPointer()));
+
+                        while (true)
+                        {
+                            hr = NativeMethods.FilterFindNext(filterFindHandle, NativeMethods.FilterInformationClass.FilterAggregateStandardInformation, buffer.DangerousGetPointer(), (uint)buffer.ByteLength, out bytesReturned);
+                            if (hr == NativeMethods.ErrorInsufficientBuffer)
+                            {
+                                buffer.Resize(unchecked((int)bytesReturned));
+                                hr = NativeMethods.FilterFindNext(filterFindHandle, NativeMethods.FilterInformationClass.FilterAggregateStandardInformation, buffer.DangerousGetPointer(), (uint)buffer.ByteLength, out bytesReturned);
+                            }
+
+                            if (hr != NativeMethods.Ok)
+                            {
+                                if (hr == NativeMethods.ErrorNoMoreItems)
+                                {
+                                    break;
+                                }
+
+                                throw Marshal.GetExceptionForHR(unchecked((int)hr));
+                            }
+
+                            result.AddRange(MarshalFilterInfo(buffer.DangerousGetPointer()));
+                        }
                     }
+                    catch (Exception e)
+                    {
+                        string message = string.Format(CultureInfo.InvariantCulture, "Unable to get the filter driver information: 0x{0:X8}", hr);
 
-                    throw Marshal.GetExceptionForHR(unchecked((int)hr));
+                        throw new InvalidOperationException(message, e);
+                    }
+                    finally
+                    {
+                        if (filterFindHandle != IntPtr.Zero)
+                        {
+                            NativeMethods.FilterFindClose(filterFindHandle);
+                        }
+                    }
                 }
-
-                //result.AddRange(MarshalFilterInfo(buffer));
             }
 
-            if (hDevice != IntPtr.Zero)
-            {
-                FilterFindClose(hDevice);
-            }
-            Console.WriteLine("Freeing memory...");
-            string StringByte = BitConverter.ToString(buffer);
-            Console.WriteLine(StringByte);
-
-            //FreeHGlobal(buffer);
-            //return result;
+            return result;
         }
 
+        /// <summary>
+        /// Marshals the filter info objects from the <paramref name="ptr"/> specified.
+        /// </summary>
+        /// <param name="ptr">Pointer to the buffer with the filter information structures to marshal.</param>
+        /// <returns>List of filter information structures marshaled.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="ptr"/> is equal to the <see cref="IntPtr.Zero"/>.</exception>
+        /// <exception cref="InvalidOperationException">Filter information structure contains invalid data.</exception>
         private static IEnumerable<FilterInfo> MarshalFilterInfo(IntPtr ptr)
         {
             if (ptr == IntPtr.Zero)
@@ -120,7 +124,7 @@ namespace Shhmon
             while (true)
             {
                 // Get the structure offset from the aggregate information and marshal it.
-                FltUserStructures._FILTER_AGGREGATE_BASIC_INFORMATION aggregateInfo = (FltUserStructures._FILTER_AGGREGATE_BASIC_INFORMATION)Marshal.PtrToStructure(curPtr, typeof(FltUserStructures._FILTER_AGGREGATE_BASIC_INFORMATION));
+                FilterAggregateStandardInformation aggregateInfo = (FilterAggregateStandardInformation)Marshal.PtrToStructure(curPtr, typeof(FilterAggregateStandardInformation));
                 IntPtr infoPtr = curPtr + FilterAggregateStandardInformation.GetStructureOffset();
 
                 FilterInfo filterInfo = new FilterInfo();
@@ -137,9 +141,15 @@ namespace Shhmon
                     filterInfo.Name = Marshal.PtrToStringUni(curPtr + info.FilterNameBufferOffset, info.FilterNameLength / UnicodeEncoding.CharSize);
                     filterInfo.Altitude = int.Parse(Marshal.PtrToStringUni(curPtr + info.FilterAltitudeBufferOffset, info.FilterAltitudeLength / UnicodeEncoding.CharSize), NumberStyles.Integer, CultureInfo.InvariantCulture);
                 }
+                else if (aggregateInfo.Flags == FilterAggregateStandardInformation.FltflAsiIsLegacyfilter)
+                {
+                    FilterAggregateStandardLegacyFilterInformation info = (FilterAggregateStandardLegacyFilterInformation)Marshal.PtrToStructure(infoPtr, typeof(FilterAggregateStandardLegacyFilterInformation));
+                    filterInfo.Name = Marshal.PtrToStringUni(curPtr + info.FilterNameBufferOffset, info.FilterNameLength / UnicodeEncoding.CharSize);
+                    filterInfo.Altitude = int.Parse(Marshal.PtrToStringUni(curPtr + info.FilterAltitudeBufferOffset, info.FilterAltitudeLength / UnicodeEncoding.CharSize), NumberStyles.Integer, CultureInfo.InvariantCulture);
+                }
                 else
                 {
-                    throw new InvalidOperationException(string.Format("Invalid information type received: {0:X8}", aggregateInfo.Flags));
+                    throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Invalid information type received: {0:X8}", aggregateInfo.Flags));
                 }
 
                 result.Add(filterInfo);
@@ -155,292 +165,539 @@ namespace Shhmon
 
             return result;
         }
+    }
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        internal struct FilterAggregateStandardInformation
+    public class ResizableBuffer : IDisposable
+    {
+        #region Fields
+
+        /// <summary>
+        /// Synchronization root.
+        /// </summary>
+        private readonly object syncRoot = new object();
+
+        /// <summary>
+        /// Maximum buffer size.
+        /// </summary>
+        /// <remarks>
+        /// Current value is <c>5 Mb</c>.
+        /// </remarks>
+        private readonly int maxBufferSize = Math.Max(5 * 1024 * 1024, Environment.SystemPageSize);
+
+        /// <summary>
+        /// Pointer to the buffer allocated.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Reliability", "CA2006:UseSafeHandleToEncapsulateNativeResources", Justification = "This class manually manages this buffer.")]
+        private IntPtr buffer = IntPtr.Zero;
+
+        /// <summary>
+        /// Size of the internal buffer, in bytes.
+        /// </summary>
+        private volatile int byteLength;
+
+        /// <summary>
+        /// Whether the current instance is already disposed.
+        /// </summary>
+        private volatile bool isDisposed;
+
+        #endregion // Fields
+
+        #region Constructor
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ResizableBuffer"/> class.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Buffer was not allocated.</exception>
+        /// <remarks>
+        /// The <see cref="Environment.SystemPageSize"/> is passed as an initial size.
+        /// </remarks>
+        public ResizableBuffer()
+            : this(Environment.SystemPageSize)
         {
-            public const uint FltflAsiIsMinifilter = 0x00000001;
-            public const uint FltflAsiIsLegacyfilter = 0x00000002;
-            [MarshalAs(UnmanagedType.U4)]
-            public uint NextEntryOffset;
-            [MarshalAs(UnmanagedType.U4)]
-            public uint Flags;
-            [MarshalAs(UnmanagedType.U4)]
-            public uint StructureOffset;
-            public static int GetStructureOffset()
+            // Do nothing.
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ResizableBuffer"/> class.
+        /// </summary>
+        /// <param name="initialSize">Initial buffer size.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="initialSize"/> is lesser or equal to zero or greater than the maximum size allowed.</exception>
+        /// <exception cref="InvalidOperationException">Buffer was not allocated.</exception>
+        public ResizableBuffer(int initialSize)
+        {
+            this.EnsureBufferIsOfTheRightSize(initialSize);
+        }
+
+        /// <summary>
+        /// Finalizes an instance of the <see cref="ResizableBuffer"/> class.
+        /// </summary>
+        ~ResizableBuffer()
+        {
+            this.Dispose(false);
+        }
+
+        #endregion // Constructor
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the size of the allocated buffer.
+        /// </summary>
+        public int ByteLength
+        {
+            get
             {
-                return Marshal.OffsetOf(typeof(FilterAggregateStandardInformation), nameof(StructureOffset)).ToInt32();
+                lock (this.syncRoot)
+                {
+                    if (this.isDisposed)
+                    {
+                        throw new ObjectDisposedException("Buffer is already disposed.");
+                    }
+
+                    return this.byteLength;
+                }
             }
         }
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        internal struct FilterAggregateStandardMiniFilterInformation
+        /// <summary>
+        /// Gets a value indicating whether the buffer is already disposed.
+        /// </summary>
+        public bool Disposed
         {
-            [MarshalAs(UnmanagedType.U4)]
-            public uint Flags;
-            [MarshalAs(UnmanagedType.U4)]
-            public uint FrameId;
-            [MarshalAs(UnmanagedType.U4)]
-            public uint NumberOfInstances;
-            [MarshalAs(UnmanagedType.U2)]
-            public ushort FilterNameLength;
-            [MarshalAs(UnmanagedType.U2)]
-            public ushort FilterNameBufferOffset;
-            [MarshalAs(UnmanagedType.U2)]
-            public ushort FilterAltitudeLength;
-            [MarshalAs(UnmanagedType.U2)]
-            public ushort FilterAltitudeBufferOffset;
+            get
+            {
+                return this.isDisposed;
+            }
         }
 
+        #endregion // Properties
 
+        #region Public methods
 
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            this.Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
+        /// <summary>
+        /// Gets the pointer to the internal buffer.
+        /// </summary>
+        /// <exception cref="ObjectDisposedException">Buffer is already disposed.</exception>
+        /// <returns>Pointer to the internal buffer.</returns>
+        /// <remarks>
+        /// Be careful with the pointer returned, because it may become invalid after the next
+        /// <see cref="Resize"/> function call and after the <see cref="ResizableBuffer"/>
+        /// instance is disposed.
+        /// </remarks>
+        public IntPtr DangerousGetPointer()
+        {
+            lock (this.syncRoot)
+            {
+                if (this.isDisposed)
+                {
+                    throw new ObjectDisposedException("Buffer is already disposed.");
+                }
 
+                return this.buffer;
+            }
+        }
 
+        /// <summary>
+        /// Resizes the buffer.
+        /// </summary>
+        /// <param name="newSize">The desired buffer size.</param>
+        /// <remarks>
+        /// Be careful with the pointer returned, because it may become invalid after the next <see cref="Resize"/> function call and after the
+        /// <see cref="ResizableBuffer"/> instance is disposed.
+        /// </remarks>
+        /// <exception cref="ObjectDisposedException">Buffer is already disposed.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="newSize"/> is lesser or equal to zero or greater than the maximum size allowed.</exception>
+        public void Resize(int newSize)
+        {
+            lock (this.syncRoot)
+            {
+                if (this.isDisposed)
+                {
+                    throw new ObjectDisposedException("Buffer is already disposed.");
+                }
 
+                this.EnsureBufferIsOfTheRightSize(newSize);
+            }
+        }
 
+        #endregion // Public methods
 
+        #region Protected methods
 
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="disposing">
+        /// <see langword="true"/> to release both managed and unmanaged resources; <see langword="false"/> to release only unmanaged resources.
+        /// </param>
+        protected virtual void Dispose(bool disposing)
+        {
+            lock (this.syncRoot)
+            {
+                if (this.buffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(this.buffer);
 
+                    this.buffer = IntPtr.Zero;
+                    this.byteLength = 0;
+                }
 
+                this.isDisposed = true;
+            }
+        }
 
+        #endregion // Protected methods
 
+        #region Private methods
 
+        /// <summary>
+        /// Ensures that the current buffer can store the <paramref name="newSize"/> bytes.
+        /// If the current buffer is not large enough, it's extended.
+        /// </summary>
+        /// <param name="newSize">The desired buffer size.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="newSize"/> is lesser or equal to zero or greater than the maximum size allowed.</exception>
+        /// <exception cref="InvalidOperationException">Buffer was not allocated or extended.</exception>
+        private void EnsureBufferIsOfTheRightSize(int newSize)
+        {
+            if (newSize <= 0 || newSize > this.maxBufferSize)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(newSize),
+                    string.Format(CultureInfo.InvariantCulture, "Desired size should be greater than zero and lesser than {0}", this.maxBufferSize));
+            }
 
+            // Skip, if the buffer is already large enough.
+            if (this.byteLength >= newSize)
+            {
+                return;
+            }
 
+            try
+            {
+                // Is it initial allocation or we need to extend the buffer?
+                this.buffer = this.buffer == IntPtr.Zero
+                              ? Marshal.AllocHGlobal(newSize)
+                              : Marshal.ReAllocHGlobal(this.buffer, new IntPtr(newSize));
 
+                this.byteLength = newSize;
+                NativeMethods.ZeroMemory(this.buffer, (uint)this.byteLength);
+            }
+            catch (OutOfMemoryException oom)
+            {
+                this.buffer = IntPtr.Zero;
+                this.byteLength = 0;
 
+                throw new InvalidOperationException("Unable to allocate or extend the buffer.", oom);
+            }
+        }
 
+        #endregion // Private methods
+    }
 
+    internal static class NativeMethods
+    {
+        #region Constants
 
+        /// <summary>
+        /// Windows return code for successful operations.
+        /// </summary>
+        public const uint Ok = 0;
 
+        /// <summary>
+        /// The I/O operation has been aborted because of either a thread exit or an application request.
+        /// </summary>
+        public const uint ErrorOperationAborted = 0x800703E3;
 
+        /// <summary>
+        /// Overlapped I/O operation is in progress.
+        /// </summary>
+        public const uint ErrorIoPending = 0x800703E5;
 
+        /// <summary>
+        /// The wait operation timed out.
+        /// </summary>
+        public const uint WaitTimeout = 0x80070102;
 
-        ////////////////////////////////
-        #region pinvokes
+        /// <summary>
+        /// Cannot create a file when that file already exists.
+        /// </summary>
+        public const uint ErrorAlreadyExists = 0x800700B7;
+
+        /// <summary>
+        /// The system cannot find the file specified.
+        /// </summary>
+        public const uint ErrorFileNotFound = 0x80070002;
+
+        /// <summary>
+        /// An instance of the service is already running.
+        /// </summary>
+        public const uint ErrorServiceAlreadyRunning = 0x80070420;
+
+        /// <summary>
+        /// Executable is not a valid Win32 application.
+        /// </summary>
+        public const uint ErrorBadExeFormat = 0x800700C1;
+
+        /// <summary>
+        /// The specified driver is invalid.
+        /// </summary>
+        public const uint ErrorBadDriver = 0x800707D1;
+
+        /// <summary>
+        /// The hash for the image cannot be found in the system catalogs.
+        /// The image is likely corrupt or the victim of tampering.
+        /// </summary>
+        public const uint ErrorInvalidImageHash = 0x80070241;
+
+        /// <summary>
+        /// An instance already exists at this altitude on the volume specified.
+        /// </summary>
+        public const uint ErrorFltInstanceAltitudeCollision = 0x801F0011;
+
+        /// <summary>
+        /// An instance already exists with this name on the volume specified.
+        /// </summary>
+        public const uint ErrorFltInstanceNameCollision = 0x801F0012;
+
+        /// <summary>
+        /// The system could not find the filter specified.
+        /// </summary>
+        public const uint ErrorFltFilterNotFound = 0x801F0013;
+
+        /// <summary>
+        /// The system could not find the instance specified.
+        /// </summary>
+        public const uint ErrorFltInstanceNotFound = 0x801F0015;
+
+        /// <summary>
+        /// Element not found.
+        /// </summary>
+        public const uint ErrorNotFound = 0x80070490;
+
+        /// <summary>
+        /// No more data is available.
+        /// </summary>
+        public const uint ErrorNoMoreItems = 0x80070103;
+
+        /// <summary>
+        /// The data area passed to a system call is too small.
+        /// </summary>
+        public const uint ErrorInsufficientBuffer = 0x8007007A;
+
+        #endregion //Constants
+
+        #region Enums
+
+        /// <summary>
+        /// Type of filter driver information to be passed to the <see cref="NativeMethods.FilterFindFirst"/>
+        /// and <see cref="NativeMethods.FilterFindNext"/> methods.
+        /// </summary>
+        internal enum FilterInformationClass
+        {
+            /// <summary>
+            /// To return the FILTER_FULL_INFORMATION structure.
+            /// </summary>
+            FilterFullInformation = 0,
+
+            /// <summary>
+            /// To return the FILTER_AGGREGATE_BASIC_INFORMATION structure.
+            /// </summary>
+            FilterAggregateBasicInformation,
+
+            /// <summary>
+            /// To return the FILTER_AGGREGATE_STANDARD_INFORMATION structure.
+            /// </summary>
+            FilterAggregateStandardInformation
+        }
+
+        #endregion // Enums
+
+        #region fltlib.dll
+        [DllImport("fltlib.dll")]
+        public static extern uint FilterLoad(
+            /* [in] */ [MarshalAs(UnmanagedType.LPWStr)] string filterName);
+
+        [DllImport("fltlib.dll")]
+        public static extern uint FilterUnload(
+            /* [in] */ [MarshalAs(UnmanagedType.LPWStr)] string filterName);
+
+        [DllImport("fltlib.dll")]
+        public static extern uint FilterDetach(
+            /* [in] */ [MarshalAs(UnmanagedType.LPWStr)] string filterName,
+            /* [in] */ [MarshalAs(UnmanagedType.LPWStr)] string volumeName,
+            /* [in] */ [MarshalAs(UnmanagedType.LPWStr)] string instanceName);
+
+        [DllImport("fltlib.dll")]
+        public static extern uint FilterFindFirst(
+            /* [in]  */ [MarshalAs(UnmanagedType.I4)] FilterInformationClass informationClass,
+            /* [in]  */ IntPtr buffer,
+            /* [in]  */ uint bufferSize,
+            /* [out] */ out uint bytesReturned,
+            /* [out] */ out IntPtr filterFind);
+
+        [DllImport("fltlib.dll")]
+        public static extern uint FilterFindNext(
+            /* [in]  */ IntPtr filterFind,
+            /* [in]  */ [MarshalAs(UnmanagedType.I4)] FilterInformationClass informationClass,
+            /* [in]  */ IntPtr buffer,
+            /* [in]  */ uint bufferSize,
+            /* [out] */ out uint bytesReturned);
+
+        [DllImport("fltlib.dll")]
+        public static extern uint FilterFindClose(
+            /* [in] */ IntPtr filterFind);
+
+        #endregion // fltlib.dll
+
         [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern void RtlZeroMemory(IntPtr dest, int size);
+        public static extern void ZeroMemory(
+            /* [in] */ IntPtr handle,
+            /* [in] */ uint length);
+    }
 
-        //https://github.com/NetSPI/MonkeyWorks/blob/d9b07315508318ac8069ff1028984c051f5c7ba4/MonkeyWorks/Unmanaged/Libraries/fltlib.cs
-        [DllImport("FltLib.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern UInt32 FilterDetach(String lpFilterName, String lpVolumeName, String lpInstanceName);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct FilterAggregateStandardInformation
+    {
+        /// <summary>
+        /// The <see cref="Flags"/> value, if this structure contains the
+        /// <see cref="FilterAggregateStandardMiniFilterInformation"/> structure.
+        /// </summary>
+        public const uint FltflAsiIsMinifilter = 0x00000001;
 
-        [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern UInt32 FilterInstanceFindClose(IntPtr hFilterInstanceFind);
+        /// <summary>
+        /// The <see cref="Flags"/> value, if this structure contains the
+        /// <see cref="FilterAggregateStandardLegacyFilterInformation"/> structure.
+        /// </summary>
+        public const uint FltflAsiIsLegacyfilter = 0x00000002;
 
-        [DllImport("FltLib.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern UInt32 FilterInstanceFindFirst(
-            String lpFilterName,
-            FltUserStructures._INSTANCE_INFORMATION_CLASS dwInformationClass,
-            IntPtr lpBuffer,
-            UInt32 dwBufferSize,
-            ref UInt32 lpBytesReturned,
-            ref IntPtr lpFilterInstanceFind
-        );
+        /// <summary>
+        /// Byte offset of the next <see cref="FilterAggregateStandardInformation"/> entry,
+        /// if multiple entries are present in a buffer.
+        /// </summary>
+        /// <remarks>
+        /// This member is zero if no other entries follow this one.
+        /// </remarks>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint NextEntryOffset;
 
-        [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern UInt32 FilterInstanceFindNext(
-            IntPtr hFilterInstanceFind,
-            FltUserStructures._INSTANCE_INFORMATION_CLASS dwInformationClass,
-            IntPtr lpBuffer,
-            UInt32 dwBufferSize,
-            ref UInt32 lpBytesReturned
-        );
+        /// <summary>
+        /// Indicates whether the filter driver is a legacy filter or a MiniFilter.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint Flags;
 
-        [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern UInt32 Close(IntPtr hFilterFind);
+        /// <summary>
+        /// ULONG field to get the union offset from.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint StructureOffset;
 
-        [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern UInt32 FilterFindFirst(
-            FltUserStructures._FILTER_INFORMATION_CLASS dwInformationClass,
-            byte[] lpBuffer,
-            UInt32 dwBufferSize,
-            ref UInt32 lpBytesReturned,
-            ref IntPtr lpFilterFind
-        );
-
-        [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern UInt32 FilterFindNext(
-            IntPtr hFilterFind,
-            FltUserStructures._FILTER_INFORMATION_CLASS dwInformationClass,
-            byte[] lpBuffer,
-            UInt32 dwBufferSize,
-            out UInt32 lpBytesReturned
-        );
-
-        [DllImport("FltLib.dll", SetLastError = true)]
-        public static extern uint FilterFindClose(IntPtr hFilterFind);
-
-        [DllImport("FltLib.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern UInt32 FilterUnload(String lpFilterName);
-        #endregion pinvokes
-
-        /////////////////////////////////////////////
-
-        #region structs
-        //https://github.com/aleksk/LazyCopy/blob/a5334b0aeb7507e1fcc305fd9e3ac5a28fef9d7e/Driver/DriverClientLibrary/FilterInfo.cs
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1815:OverrideEqualsAndOperatorEqualsOnValueTypes", Justification = "Equality comparison is not needed for the current structure.")]
-        public struct FilterInfo
+        /// <summary>
+        /// Gets the offset of the structure with the detailed filter information.
+        /// </summary>
+        /// <returns>Information structure offset within the current structure.</returns>
+        public static int GetStructureOffset()
         {
-            public string Name { get; internal set; }
-            public int Altitude { get; internal set; }
-            public int? Instances { get; internal set; }
-            public int? FrameId { get; internal set; }
+            return Marshal.OffsetOf(typeof(FilterAggregateStandardInformation), nameof(StructureOffset)).ToInt32();
         }
+    }
 
-        //https://github.com/NetSPI/MonkeyWorks/blob/d9b07315508318ac8069ff1028984c051f5c7ba4/MonkeyWorks/Unmanaged/Headers/FltUserStructures.cs
-        public class FltUserStructures
-        {
-            public enum _FILTER_INFORMATION_CLASS
-            {
-                FilterFullInformation,
-                FilterAggregateBasicInformation,
-                FilterAggregateStandardInformation
-            }
-            //FILTER_INFORMATION_CLASS, *PFILTER_INFORMATION_CLASS;
+    /// <summary>
+    /// Nested structure in the <see cref="FilterAggregateStandardInformation"/> for MiniFilters.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct FilterAggregateStandardMiniFilterInformation
+    {
+        /// <summary>
+        /// Reserved field.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint Flags;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _FILTER_AGGREGATE_BASIC_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt32 Flags;
-                public UInt32 FrameID;
-                public UInt32 NumberOfInstances;
-                public UInt16 FilterNameLength;
-                public UInt16 FilterNameBufferOffset;
-                public UInt16 FilterAltitudeLength;
-                public UInt16 FilterAltitudeBufferOffset;
-            }
-            //FILTER_AGGREGATE_BASIC_INFORMATION, *PFILTER_AGGREGATE_BASIC_INFORMATION;
+        /// <summary>
+        /// Zero-based index used to identify the filter manager frame that the MiniFilter is in.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint FrameId;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _FILTER_AGGREGATE_STANDARD_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt32 Flags;
-                public UInt32 FrameID;
-                public UInt32 NumberOfInstances;
-                public UInt16 FilterNameLength;
-                public UInt16 FilterNameBufferOffset;
-                public UInt16 FilterAltitudeLength;
-                public UInt16 FilterAltitudeBufferOffset;
-            }
-            // FILTER_AGGREGATE_STANDARD_INFORMATION, * PFILTER_AGGREGATE_STANDARD_INFORMATION;
+        /// <summary>
+        /// Number of instances that currently exist for the MiniFilter.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint NumberOfInstances;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _FILTER_FULL_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt32 FrameID;
-                public UInt32 NumberOfInstances;
-                public UInt16 FilterNameLength;
-                public char[] FilterNameBuffer;
-            }
-            //FILTER_FULL_INFORMATION, *PFILTER_FULL_INFORMATION;
+        /// <summary>
+        /// Length, in bytes, of the MiniFilter name string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterNameLength;
 
-            [Flags]
-            public enum _FLT_FILESYSTEM_TYPE
-            {
-                FLT_FSTYPE_UNKNOWN,
-                FLT_FSTYPE_RAW,
-                FLT_FSTYPE_NTFS,
-                FLT_FSTYPE_FAT,
-                FLT_FSTYPE_CDFS,
-                FLT_FSTYPE_UDFS,
-                FLT_FSTYPE_LANMAN,
-                FLT_FSTYPE_WEBDAV,
-                FLT_FSTYPE_RDPDR,
-                FLT_FSTYPE_NFS,
-                FLT_FSTYPE_MS_NETWARE,
-                FLT_FSTYPE_NETWARE,
-                FLT_FSTYPE_BSUDF,
-                FLT_FSTYPE_MUP,
-                FLT_FSTYPE_RSFX,
-                FLT_FSTYPE_ROXIO_UDF1,
-                FLT_FSTYPE_ROXIO_UDF2,
-                FLT_FSTYPE_ROXIO_UDF3,
-                FLT_FSTYPE_TACIT,
-                FLT_FSTYPE_FS_REC,
-                FLT_FSTYPE_INCD,
-                FLT_FSTYPE_INCD_FAT,
-                FLT_FSTYPE_EXFAT,
-                FLT_FSTYPE_PSFS,
-                FLT_FSTYPE_GPFS,
-                FLT_FSTYPE_NPFS,
-                FLT_FSTYPE_MSFS,
-                FLT_FSTYPE_CSVFS,
-                FLT_FSTYPE_REFS,
-                FLT_FSTYPE_OPENAFS
-            }
-            //FLT_FILESYSTEM_TYPE, *PFLT_FILESYSTEM_TYPE;
+        /// <summary>
+        /// Byte offset (relative to the beginning of the structure) of the first character
+        /// of the Unicode MiniFilter name string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterNameBufferOffset;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _INSTANCE_AGGREGATE_STANDARD_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt32 Flags;
-                public UInt32 FrameID;
-                public _FLT_FILESYSTEM_TYPE VolumeFileSystemType;
-                public UInt16 InstanceNameLength;
-                public UInt16 InstanceNameBufferOffset;
-                public UInt16 AltitudeLength;
-                public UInt16 AltitudeBufferOffset;
-                public UInt16 VolumeNameLength;
-                public UInt16 VolumeNameBufferOffset;
-                public UInt16 FilterNameLength;
-                public UInt16 FilterNameBufferOffset;
-                public UInt32 SupportedFeatures;
-            }
-            //INSTANCE_AGGREGATE_STANDARD_INFORMATION, * PINSTANCE_AGGREGATE_STANDARD_INFORMATION;
+        /// <summary>
+        /// Length, in bytes, of the MiniFilter altitude string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterAltitudeLength;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _INSTANCE_BASIC_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt16 InstanceNameLength;
-                public UInt16 InstanceNameBufferOffset;
-            }
-            //INSTANCE_BASIC_INFORMATION, PINSTANCE_BASIC_INFORMATION;
+        /// <summary>
+        /// Byte offset (relative to the beginning of the structure) of the first character
+        /// of the Unicode MiniFilter altitude string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterAltitudeBufferOffset;
+    }
 
-            [Flags]
-            public enum _INSTANCE_INFORMATION_CLASS
-            {
+    /// <summary>
+    /// Nested structure in the <see cref="FilterAggregateStandardInformation"/> for the legacy filters.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct FilterAggregateStandardLegacyFilterInformation
+    {
+        /// <summary>
+        /// Reserved field.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U4)]
+        public uint Flags;
 
-                InstanceBasicInformation,
-                InstancePartialInformation,
-                InstanceFullInformation,
-                InstanceAggregateStandardInformation
+        /// <summary>
+        /// Length, in bytes, of the legacy filter name string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterNameLength;
 
-            }
-            //INSTANCE_INFORMATION_CLASS, *PINSTANCE_INFORMATION_CLASS;
+        /// <summary>
+        /// Byte offset (relative to the beginning of the structure) of the first character
+        /// of the Unicode legacy filter name string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterNameBufferOffset;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _INSTANCE_FULL_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt16 InstanceNameLength;
-                public UInt16 InstanceNameBufferOffset;
-                public UInt16 AltitudeLength;
-                public UInt16 AltitudeBufferOffset;
-                public UInt16 VolumeNameLength;
-                public UInt16 VolumeNameBufferOffset;
-                public UInt16 FilterNameLength;
-                public UInt16 FilterNameBufferOffset;
-            }
-            //INSTANCE_FULL_INFORMATION, PINSTANCE_FULL_INFORMATION;
+        /// <summary>
+        /// Length, in bytes, of the legacy filter altitude string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterAltitudeLength;
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct _INSTANCE_PARTIAL_INFORMATION
-            {
-                public UInt32 NextEntryOffset;
-                public UInt16 InstanceNameLength;
-                public UInt16 InstanceNameBufferOffset;
-                public UInt16 AltitudeLength;
-                public UInt16 AltitudeBufferOffset;
-            }
-            //INSTANCE_PARTIAL_INFORMATION, PINSTANCE_PARTIAL_INFORMATION;
-            #endregion structs
-        }
+        /// <summary>
+        /// Byte offset (relative to the beginning of the structure) of the first character
+        /// of the Unicode legacy filter altitude string.
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public ushort FilterAltitudeBufferOffset;
     }
 }
