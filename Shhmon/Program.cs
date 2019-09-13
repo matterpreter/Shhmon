@@ -55,7 +55,7 @@ namespace NewShhmon
                 Console.WriteLine("[-] LookupPrivilegeValue failed!");
                 return;
             }
-            Console.WriteLine(" [+] Received LUID");
+            Console.WriteLine("[+] Received LUID");
 
             LUID_AND_ATTRIBUTES luidAndAttributes = new LUID_AND_ATTRIBUTES();
             luidAndAttributes.Luid = luid;
@@ -67,14 +67,13 @@ namespace NewShhmon
 
             TOKEN_PRIVILEGES previousState = new TOKEN_PRIVILEGES();
             uint retLen = 0;
-            Console.WriteLine(" [*] Adjusting token");
             if (!NativeMethods.AdjustTokenPrivileges(hToken, false, ref newState, (uint)Marshal.SizeOf(newState), ref previousState, out retLen))
             {
                 Console.WriteLine("[-] AdjustTokenPrivileges failed!");
                 return;
             }
 
-            Console.WriteLine(" [+] SeLoadDriverPrivilege added!");
+            Console.WriteLine("[+] SeLoadDriverPrivilege added!");
             return;
         }
 
