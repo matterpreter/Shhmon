@@ -16,3 +16,5 @@ There are a few interesting events surrounding this tactic that should be evalua
 - **Sysmon Event ID 255** - Error message with a detail of `DriverCommunication`
 - **Windows System Event ID 1** - From the source "FilterManager" stating `File System Filter '\<DriverName\>' (Version 0.0, \<Timstamp\>) unloaded successfully.`
 - **Windows Security Event ID 4672** - `SeLoadDriverPrivileges` being granted to an account other than `SYSTEM`
+
+**Mitre ATT&CK References**: [T1054](https://attack.mitre.org/techniques/T1054/), [T1089](https://attack.mitre.org/techniques/T1089/)
