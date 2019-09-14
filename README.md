@@ -1,6 +1,4 @@
-# Shhmon
-Neuters Sysmon by unloading its driver.
-
+# Shhmon - Neuter Sysmon by unloading its driver
 ```
 Usage: Shhmon.exe <hunt|kill>
 ```
