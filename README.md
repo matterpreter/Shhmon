@@ -11,6 +11,10 @@ While Sysmon's driver can be renamed at installation, it is always loaded at alt
 2. If a driver is found at altitude 385201, it uses `kernel32!OpenProcessToken` and `advapi32!AdjustTokenPrivileges` to grant itself `SeLoadDriverPrivilege`.
 3. If it was able get the required privilege, it calls `fltlib!FilterUnload` to unload the driver.
 
-This generates a 255 DriverCommunication error in Sysmon and events will no longer be collected, but the service will continue to run.
-
 ![](ShhmonDemo.gif)
+
+## Defensive Guidance
+There are a few interesting events surrounding this tactic that should be evaluated:
+- **Sysmon Event ID 255** - Error message with a detail of `DriverCommunication`
+- **Windows System Event ID 1** - From the source "FilterManager" stating `File System Filter '\<DriverName\>' (Version 0.0, \<Timstamp\>) unloaded successfully.`
+- **Windows Security Event ID 4672** - `SeLoadDriverPrivileges` being granted to an account other than `SYSTEM`
