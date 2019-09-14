@@ -1,2 +1,4 @@
 # Shhmon
-Neutering Sysmon
+Neutering Sysmon via driver unload
+
+![](ShhmonDemo.gif)
