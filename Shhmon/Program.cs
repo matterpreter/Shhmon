@@ -52,7 +52,6 @@ namespace Shhmon
                             if (args[0] == "kill")
                             {
                                 Console.WriteLine("[+] Trying to kill the driver...");
-                                //currentProcessToken = new IntPtr();
                                 Win32.OpenProcessToken(Process.GetCurrentProcess().Handle, Win32.TOKEN_ALL_ACCESS, out currentProcessToken);
                                 Tokens.SetTokenPrivilege(ref currentProcessToken);
                                 status = Win32.FilterUnload(filter.Name);
@@ -67,8 +66,6 @@ namespace Shhmon
                             }
                         }
                     }
-                    else
-                    { } //skip
                 }
                 if (!found)
                 {

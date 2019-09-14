@@ -8,18 +8,8 @@ namespace Shhmon
         #region pinvokes
 
         [DllImport("fltlib.dll")]
-        public static extern uint FilterLoad(
-            [MarshalAs(UnmanagedType.LPWStr)] string filterName);
-
-        [DllImport("fltlib.dll")]
         public static extern uint FilterUnload(
             [MarshalAs(UnmanagedType.LPWStr)] string filterName);
-
-        [DllImport("fltlib.dll")]
-        public static extern uint FilterDetach(
-            [MarshalAs(UnmanagedType.LPWStr)] string filterName,
-            [MarshalAs(UnmanagedType.LPWStr)] string volumeName,
-            [MarshalAs(UnmanagedType.LPWStr)] string instanceName);
 
         [DllImport("fltlib.dll")]
         public static extern uint FilterFindFirst(
@@ -47,7 +37,10 @@ namespace Shhmon
             uint length);
 
         [DllImport("kernel32.dll")]
-        internal static extern Boolean OpenProcessToken(IntPtr hProcess, uint dwDesiredAccess, out IntPtr hToken);
+        internal static extern Boolean OpenProcessToken(
+            IntPtr hProcess,
+            uint dwDesiredAccess,
+            out IntPtr hToken);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern Boolean AdjustTokenPrivileges(
@@ -56,15 +49,13 @@ namespace Shhmon
             ref TOKEN_PRIVILEGES NewState,
             uint BufferLengthInBytes,
             ref TOKEN_PRIVILEGES PreviousState,
-            out uint ReturnLengthInBytes
-        );
+            out uint ReturnLengthInBytes);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern Boolean LookupPrivilegeValue(
             string lpSystemName,
             string lpName,
-            ref LUID luid
-        );
+            ref LUID luid);
         #endregion pinvokes
 
         #region structs
