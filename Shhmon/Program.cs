@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Principal;
 
 namespace Shhmon
 {
@@ -10,6 +11,12 @@ namespace Shhmon
         {
             if (args[0] == "hunt" || args[0] == "kill")
             {
+                if (!IsAdmin())
+                {
+                    Console.WriteLine("[-] You need administrator permissions to perform this action");
+                    Environment.Exit(1);
+                }
+
                 IntPtr currentProcessToken = new IntPtr();
                 uint status;
                 bool found = false;
@@ -73,6 +80,17 @@ namespace Shhmon
                 Console.WriteLine("[-] Incorrect args");
                 Console.WriteLine("[-] Usage: Shhmon.exe <hunt|kill>");
             }
+        }
+
+        public static bool IsAdmin()
+        {
+            WindowsIdentity identity = WindowsIdentity.GetCurrent();
+            WindowsPrincipal principal = new WindowsPrincipal(identity);
+            if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
+            {
+                return false;
+            }
+            return true;
         }
     }
 }
