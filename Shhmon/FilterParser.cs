@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32;
 
 namespace Shhmon
 {
@@ -143,6 +144,36 @@ namespace Shhmon
             }
 
             return result;
+        }
+
+        public static void WalkRegistryKeys(out string altName, out string altitude)
+        {
+            altName = null;
+            altitude = null;
+
+            RegistryKey hklm = Registry.LocalMachine;
+            RegistryKey services = hklm.OpenSubKey(@"SYSTEM\CurrentControlSet\Services");
+
+            foreach (string service in services.GetSubKeyNames())
+            {
+                RegistryKey serviceSubkey = services.OpenSubKey(service);
+                foreach (string subkeyName in serviceSubkey.GetSubKeyNames())
+                {
+                    if (subkeyName.Contains("Instances"))
+                    {
+                        RegistryKey servicesSubsubkey = serviceSubkey.OpenSubKey(subkeyName);
+                        foreach (string subsubkeyName in servicesSubsubkey.GetSubKeyNames())
+                        {
+                            if (subsubkeyName.Equals("Sysmon Instance"))
+                            {
+                                RegistryKey sysmonAltitude = servicesSubsubkey.OpenSubKey(subsubkeyName);
+                                altitude = sysmonAltitude.GetValue("Altitude").ToString();
+                                altName = service;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
