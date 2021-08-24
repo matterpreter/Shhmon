@@ -7,7 +7,7 @@ While Sysmon's driver can be renamed at installation, it is always loaded at alt
 
 **1.** Uses `fltlib!FilterFindFirst` and `fltlib!FilterFindNext` to enumerate drivers on the system in place of crawling the registry.  
 **2a.** If a driver is found at altitude 385201, it uses `kernel32!OpenProcessToken` and `advapi32!AdjustTokenPrivileges` to grant itself `SeLoadDriverPrivilege`.  
-**2b.** If a driver was not found at 385201, it walks `HKLM\SYSTEM\CurrentControlSet\Services` looking for a "Sysmon Instance" subkey and if found, assigns the required permission as desrcibed above.  
+**2b.** If a driver was not found at 385201, it walks `HKLM\SYSTEM\CurrentControlSet\Services` looking for a "Sysmon Instance" subkey and if found, assigns the required permission as described above.  
 **3.** If it was able get the required privilege, it calls `fltlib!FilterUnload` to unload the driver.  
 
 ![](ShhmonDemo.gif)
